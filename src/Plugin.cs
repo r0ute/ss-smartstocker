@@ -82,6 +82,7 @@ public class Plugin : BaseUnityPlugin
         }
 
 
+        [HarmonyPatch(typeof(RackSlot), "Initialize")]
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RefreshLabel))]
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RePositionBoxes))]
@@ -138,9 +139,7 @@ public class Plugin : BaseUnityPlugin
 
         private static int CountStreetBoxes(RackSlot rackSlot)
         {
-            return Singleton<StorageStreet>.Instance.boxes.Count((box) => box.HasProducts
-                && !box.Racked
-                && box.Product.ID == rackSlot.Data.ProductID);
+            return Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet().Count((box) => box.Product.ID == rackSlot.Data.ProductID);
         }
 
         private static int CountCartBoxes(RackSlot rackSlot)
