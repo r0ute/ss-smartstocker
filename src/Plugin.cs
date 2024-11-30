@@ -67,13 +67,64 @@ public class Plugin : BaseUnityPlugin
         }
 
 
-        [HarmonyPatch(typeof(PricingItem), nameof(PricingItem.Setup))]
-        [HarmonyPostfix]
-        static void OnPricingItemSetup(Pricing data, ref PricingItem __instance)
+        [HarmonyPatch(typeof(RackSlotData), nameof(RackSlotData.Clear))]
+        [HarmonyPrefix]
+        static void OnRackSlotDataClear(ref RackSlotData __instance, ref bool __runOriginal)
         {
+            __runOriginal = false;
+            __instance.RackedBoxDatas.Clear();
+        }
 
+
+
+        [HarmonyPatch(typeof(RackSlot), "SetLabel")]
+        [HarmonyPostfix]
+        static void OnRackSlotSetLabel(ref RackSlot __instance)
+        {
+            UpdateLabel(__instance);
 
         }
+
+        [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RefreshLabel))]
+        [HarmonyPostfix]
+        static void OnRackSlotRefreshLabel(ref RackSlot __instance)
+        {
+            UpdateLabel(__instance);
+
+        }
+
+        [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RePositionBoxes))]
+        [HarmonyPostfix]
+        static void OnRackSlotRePositionBoxes(ref RackSlot __instance)
+        {
+            UpdateLabel(__instance);
+
+        }
+
+        private static void UpdateLabel(RackSlot rackSlot)
+        {
+            if (rackSlot.HasLabel && rackSlot.CurrentBoxID != -1)
+            {
+                var neededBoxes = Singleton<IDManager>.Instance.BoxSO(rackSlot.CurrentBoxID).GridLayout.boxCount
+                    - rackSlot.Data.BoxCount;
+
+                if (neededBoxes == 0)
+                {
+                    return;
+                }
+
+                var label = Traverse.Create(rackSlot).Field("m_Label").GetValue() as Label;
+                var productCount = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
+
+                productCount.text = string.Format("{0}</size><br><size={2}><color=\"red\">-{1}</color></size>",
+                    rackSlot.ProductCount,
+                    neededBoxes,
+                    productCount.fontSize * 0.8f);
+                productCount.paragraphSpacing = -10;
+            }
+
+        }
+
 
         private static void AutofillRack(bool auto = true)
         {
