@@ -134,7 +134,7 @@ public class Plugin : BaseUnityPlugin
                 productCountText.paragraphSpacing = -10;
                 productCountText.text = string.Format("{0}</size><br><size={1}>{2}</size>",
                     rackSlot.ProductCount,
-                    productCountText.fontSize * 0.6f,
+                    productCountText.fontSizeMax * 0.6f,
                     boxCountText);
             }
 
