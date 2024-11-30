@@ -88,8 +88,14 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RefreshLabel))]
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RePositionBoxes))]
         [HarmonyPostfix]
-        static void UpdateLabel(RackSlot rackSlot)
+        static void OnUpdateLabel(ref RackSlot __instance)
         {
+            UpdateLabel(__instance);
+        }
+
+        private static void UpdateLabel(RackSlot rackSlot)
+        {
+
             if (rackSlot.HasLabel && !rackSlot.Full)
             {
                 var box = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot));
@@ -102,9 +108,8 @@ public class Plugin : BaseUnityPlugin
                 if (itemQuantity != null)
                 {
                     cartItemsCount = itemQuantity.FirstItemCount;
+                    needBoxCount -= cartItemsCount;
                 }
-
-                needBoxCount -= cartItemsCount;
 
                 string boxCountText = "";
 
