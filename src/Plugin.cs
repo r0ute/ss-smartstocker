@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -67,16 +68,6 @@ public class Plugin : BaseUnityPlugin
         }
 
 
-        [HarmonyPatch(typeof(RackSlotData), nameof(RackSlotData.Clear))]
-        [HarmonyPrefix]
-        static void OnRackSlotDataClear(ref RackSlotData __instance, ref bool __runOriginal)
-        {
-            __runOriginal = false;
-            __instance.RackedBoxDatas.Clear();
-        }
-
-
-
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
         [HarmonyPostfix]
         static void OnRackSlotSetLabel(ref RackSlot __instance)
@@ -103,25 +94,59 @@ public class Plugin : BaseUnityPlugin
 
         private static void UpdateLabel(RackSlot rackSlot)
         {
-            if (rackSlot.HasLabel && rackSlot.CurrentBoxID != -1)
+            if (rackSlot.HasLabel && !rackSlot.Full)
             {
-                var neededBoxes = Singleton<IDManager>.Instance.BoxSO(rackSlot.CurrentBoxID).GridLayout.boxCount
-                    - rackSlot.Data.BoxCount;
+                var box = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot));
+                var needBoxCount = box.GridLayout.boxCount - rackSlot.Data.BoxCount;
+               
+                var cartItemsCount = 0;
+                var itemQuantity = Singleton<CartManager>.Instance.CartData.ProductInCarts
+                    .FirstOrDefault((itemQuantity) => itemQuantity.FirstItemID == rackSlot.Data.ProductID);
 
-                if (neededBoxes == 0)
+                if (itemQuantity != null)
+                {
+                    cartItemsCount = itemQuantity.FirstItemCount;
+                }
+
+                needBoxCount -= cartItemsCount;
+
+
+                string boxCountText = "";
+
+                if (needBoxCount > 0) {
+                    boxCountText += string.Format("<color=red>{0}</color>", needBoxCount);
+                }
+
+                if (cartItemsCount > 0) {
+                    boxCountText += string.Format(" <color=green>{0}</color>", cartItemsCount);
+                }
+
+                if (boxCountText.IsNullOrEmpty())
                 {
                     return;
                 }
 
                 var label = Traverse.Create(rackSlot).Field("m_Label").GetValue() as Label;
-                var productCount = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
+                var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
-                productCount.text = string.Format("{0}</size><br><size={2}><color=\"red\">-{1}</color></size>",
+                productCountText.text = string.Format("{0}</size><br><size={1}>{2}</size>",
                     rackSlot.ProductCount,
-                    neededBoxes,
-                    productCount.fontSize * 0.8f);
-                productCount.paragraphSpacing = -10;
+                    productCountText.fontSize * 0.6f,
+                    boxCountText);
+                productCountText.paragraphSpacing = -10;
             }
+
+        }
+
+        private static int GetBoxId(RackSlot rackSlot)
+        {
+            if (rackSlot.CurrentBoxID == -1)
+            {
+                var boxSize = Singleton<IDManager>.Instance.ProductSO(rackSlot.Data.ProductID).GridLayoutInBox.boxSize;
+                return Singleton<IDManager>.Instance.Boxes.FirstOrDefault((box) => box.BoxSize == boxSize).ID;
+            }
+
+            return rackSlot.CurrentBoxID;
 
         }
 
