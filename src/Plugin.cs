@@ -68,6 +68,35 @@ public class Plugin : BaseUnityPlugin
         }
 
 
+
+        [HarmonyPatch(typeof(CartManager), nameof(CartManager.AddCart))]
+        [HarmonyPostfix]
+        static void OnCartManagerAddCart(ItemQuantity salesItem, SalesType salesType)
+        {
+            OnCartManagerChange(salesItem, salesType);
+        }
+
+
+        [HarmonyPatch(typeof(CartManager), nameof(CartManager.ReduceCart))]
+        [HarmonyPostfix]
+        static void OnCartManagerReduceCart(ItemQuantity salesItem, SalesType salesType)
+        {
+            OnCartManagerChange(salesItem, salesType);
+
+        }
+
+        private static void OnCartManagerChange(ItemQuantity salesItem, SalesType salesType)
+        {
+            if (salesType != SalesType.PRODUCT)
+            {
+                return;
+            }
+
+            Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
+
+        }
+
+
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
         [HarmonyPostfix]
         static void OnRackSlotSetLabel(ref RackSlot __instance)
@@ -98,7 +127,7 @@ public class Plugin : BaseUnityPlugin
             {
                 var box = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot));
                 var needBoxCount = box.GridLayout.boxCount - rackSlot.Data.BoxCount;
-               
+
                 var cartItemsCount = 0;
                 var itemQuantity = Singleton<CartManager>.Instance.CartData.ProductInCarts
                     .FirstOrDefault((itemQuantity) => itemQuantity.FirstItemID == rackSlot.Data.ProductID);
@@ -110,30 +139,30 @@ public class Plugin : BaseUnityPlugin
 
                 needBoxCount -= cartItemsCount;
 
-
                 string boxCountText = "";
 
-                if (needBoxCount > 0) {
-                    boxCountText += string.Format("<color=red>{0}</color>", needBoxCount);
-                }
-
-                if (cartItemsCount > 0) {
-                    boxCountText += string.Format(" <color=green>{0}</color>", cartItemsCount);
-                }
-
-                if (boxCountText.IsNullOrEmpty())
+                if (needBoxCount > 0)
                 {
+                    boxCountText += string.Format("<color=\"red\">{0}</color>", needBoxCount);
+                }
+
+                if (cartItemsCount > 0)
+                {
+                    boxCountText += string.Format(" <color=\"green\">{0}</color>", cartItemsCount);
+                }
+
+                if (boxCountText.IsNullOrEmpty()) {
                     return;
                 }
 
                 var label = Traverse.Create(rackSlot).Field("m_Label").GetValue() as Label;
                 var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
+                productCountText.paragraphSpacing = -10;
                 productCountText.text = string.Format("{0}</size><br><size={1}>{2}</size>",
                     rackSlot.ProductCount,
                     productCountText.fontSize * 0.6f,
                     boxCountText);
-                productCountText.paragraphSpacing = -10;
             }
 
         }
