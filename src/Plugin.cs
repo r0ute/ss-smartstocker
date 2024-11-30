@@ -67,20 +67,17 @@ public class Plugin : BaseUnityPlugin
             }
         }
 
-
         [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
         [HarmonyPatch(typeof(MarketShoppingCart), nameof(MarketShoppingCart.ReduceProduct))]
-        [HarmonyPatch(typeof(CartManager), nameof(CartManager.AddCart))]
-        [HarmonyPatch(typeof(CartManager), nameof(CartManager.ReduceCart))]
         [HarmonyPostfix]
-        static void OnCartManagerChange(ItemQuantity salesItem, SalesType salesType)
+        static void OnCartProductChange(ItemQuantity salesItem, SalesType salesType)
         {
             if (salesType != SalesType.PRODUCT)
             {
                 return;
             }
 
-            Logger.LogDebug($"OnCartManagerChange: product={salesItem.FirstItemID}");
+            Logger.LogDebug($"OnCartProductChange: product={salesItem.FirstItemID}");
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
         }
 
