@@ -69,7 +69,7 @@ public class Plugin : BaseUnityPlugin
 
 
         [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
-        [HarmonyPatch(typeof(MarketShoppingCart), "ReduceProduct")]
+        [HarmonyPatch(typeof(MarketShoppingCart), nameof(MarketShoppingCart.ReduceProduct))]
         [HarmonyPatch(typeof(CartManager), nameof(CartManager.AddCart))]
         [HarmonyPatch(typeof(CartManager), nameof(CartManager.ReduceCart))]
         [HarmonyPostfix]
@@ -80,6 +80,7 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
+            Logger.LogDebug($"OnCartManagerChange: product={salesItem.FirstItemID}");
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
         }
 
@@ -98,29 +99,27 @@ public class Plugin : BaseUnityPlugin
 
             if (rackSlot.HasLabel && !rackSlot.Full)
             {
-                var box = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot));
-                var needBoxCount = box.GridLayout.boxCount - rackSlot.Data.BoxCount;
 
-                var cartItemsCount = 0;
-                var itemQuantity = Singleton<CartManager>.Instance.CartData.ProductInCarts
-                    .FirstOrDefault((itemQuantity) => itemQuantity.FirstItemID == rackSlot.Data.ProductID);
-
-                if (itemQuantity != null)
-                {
-                    cartItemsCount = itemQuantity.FirstItemCount;
-                    needBoxCount -= cartItemsCount;
-                }
+                var boxSurplusCount = CountCartBoxes(rackSlot) + CountStreetBoxes(rackSlot);
+                var boxDeficitCount = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot)).GridLayout.boxCount
+                 - rackSlot.Data.BoxCount
+                 - boxSurplusCount;
 
                 string boxCountText = "";
 
-                if (needBoxCount > 0)
+                if (boxDeficitCount > 0)
                 {
-                    boxCountText += string.Format("<color=\"red\">{0}</color>", needBoxCount);
+                    boxCountText += string.Format("<color=\"red\">{0}</color>", boxDeficitCount);
                 }
 
-                if (cartItemsCount > 0)
+                if (boxDeficitCount > 0 && boxSurplusCount > 0)
                 {
-                    boxCountText += string.Format(" <color=\"green\">{0}</color>", cartItemsCount);
+                    boxCountText += " ";
+                }
+
+                if (boxSurplusCount > 0)
+                {
+                    boxCountText += string.Format("<color=\"green\">{0}</color>", boxSurplusCount);
                 }
 
                 if (boxCountText.IsNullOrEmpty())
@@ -138,6 +137,23 @@ public class Plugin : BaseUnityPlugin
                     boxCountText);
             }
 
+        }
+
+        private static int CountStreetBoxes(RackSlot rackSlot)
+        {
+            return Singleton<StorageStreet>.Instance.boxes.Count((box) => box.HasProducts
+                && !box.Racked
+                && box.Product.ID == rackSlot.Data.ProductID);
+        }
+
+        private static int CountCartBoxes(RackSlot rackSlot)
+        {
+            var itemQuantity = Singleton<CartManager>.Instance.CartData.ProductInCarts
+                    .FirstOrDefault((itemQuantity) => itemQuantity.FirstItemID == rackSlot.Data.ProductID);
+
+            return (itemQuantity != null)
+                ? itemQuantity.FirstItemCount
+                : 0;
         }
 
         private static int GetBoxId(RackSlot rackSlot)
