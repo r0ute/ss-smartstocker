@@ -68,24 +68,12 @@ public class Plugin : BaseUnityPlugin
         }
 
 
-
+        [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
+        [HarmonyPatch(typeof(MarketShoppingCart), "ReduceProduct")]
         [HarmonyPatch(typeof(CartManager), nameof(CartManager.AddCart))]
-        [HarmonyPostfix]
-        static void OnCartManagerAddCart(ItemQuantity salesItem, SalesType salesType)
-        {
-            OnCartManagerChange(salesItem, salesType);
-        }
-
-
         [HarmonyPatch(typeof(CartManager), nameof(CartManager.ReduceCart))]
         [HarmonyPostfix]
-        static void OnCartManagerReduceCart(ItemQuantity salesItem, SalesType salesType)
-        {
-            OnCartManagerChange(salesItem, salesType);
-
-        }
-
-        private static void OnCartManagerChange(ItemQuantity salesItem, SalesType salesType)
+        static void OnCartManagerChange(ItemQuantity salesItem, SalesType salesType)
         {
             if (salesType != SalesType.PRODUCT)
             {
@@ -93,35 +81,14 @@ public class Plugin : BaseUnityPlugin
             }
 
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
-
         }
 
 
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
-        [HarmonyPostfix]
-        static void OnRackSlotSetLabel(ref RackSlot __instance)
-        {
-            UpdateLabel(__instance);
-
-        }
-
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RefreshLabel))]
-        [HarmonyPostfix]
-        static void OnRackSlotRefreshLabel(ref RackSlot __instance)
-        {
-            UpdateLabel(__instance);
-
-        }
-
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RePositionBoxes))]
         [HarmonyPostfix]
-        static void OnRackSlotRePositionBoxes(ref RackSlot __instance)
-        {
-            UpdateLabel(__instance);
-
-        }
-
-        private static void UpdateLabel(RackSlot rackSlot)
+        static void UpdateLabel(RackSlot rackSlot)
         {
             if (rackSlot.HasLabel && !rackSlot.Full)
             {
@@ -151,7 +118,8 @@ public class Plugin : BaseUnityPlugin
                     boxCountText += string.Format(" <color=\"green\">{0}</color>", cartItemsCount);
                 }
 
-                if (boxCountText.IsNullOrEmpty()) {
+                if (boxCountText.IsNullOrEmpty())
+                {
                     return;
                 }
 
