@@ -77,25 +77,32 @@ public class Plugin : BaseUnityPlugin
         }
 
         [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
-        [HarmonyPatch(typeof(MarketShoppingCart), nameof(MarketShoppingCart.ReduceProduct))]
         [HarmonyPostfix]
-        static void OnCartProductChange(ItemQuantity salesItem, SalesType salesType)
+        static void OnMarketShoppingCartAddProduct(ItemQuantity salesItem, SalesType salesType)
         {
             if (salesType != SalesType.PRODUCT)
             {
                 return;
             }
 
-            Logger.LogDebug($"OnCartProductChange: product={salesItem.FirstItemID}");
+            Logger.LogDebug($"OnMarketShoppingCartAddProduct: product={salesItem.FirstItemID}");
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
         }
 
-        
+        [HarmonyPatch(typeof(MarketShoppingCart), nameof(MarketShoppingCart.RemoveProduct))]
+        [HarmonyPostfix]
+        static void OnMarketShoppingCartRemoveProduct(ItemQuantity productData, SalesType salesType)
+        {
+
+            Logger.LogDebug($"OnMarketShoppingCartRemoveProduct: product={productData.FirstItemID}");
+            Singleton<RackManager>.Instance.RackSlots[productData.FirstItemID].ForEach(UpdateLabel);
+        }
+
+
         [HarmonyPatch(typeof(DisplaySlot), "SetLabel")]
         [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.TakeProductFromDisplay))]
         [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.AddProduct))]
         [HarmonyPostfix]
-        
         static void OnUpdateDisplaySlotLabel(ref DisplaySlot __instance)
         {
             UpdateLabel(__instance);
@@ -119,6 +126,14 @@ public class Plugin : BaseUnityPlugin
             }
         }
 
+        [HarmonyPatch(typeof(InventoryManager), nameof(InventoryManager.RemoveBox), [typeof(BoxData)])]
+        [HarmonyPostfix]
+        static void OnInventoryManagerRemoveBox(BoxData boxData)
+        {
+
+            Logger.LogInfo($"OnInventoryManagerRemoveBox: ProductID={boxData.ProductID}");
+            Singleton<RackManager>.Instance.RackSlots[boxData.ProductID].ForEach(UpdateLabel);
+        }
 
         [HarmonyPatch(typeof(RackSlot), "Initialize")]
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
@@ -181,7 +196,8 @@ public class Plugin : BaseUnityPlugin
 
         private static int CountStreetBoxes(RackSlot rackSlot)
         {
-            return Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet().Count((box) => box.Product.ID == rackSlot.Data.ProductID);
+            return Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
+                .Count((box) => !box.IsBoxOccupied && box.Product.ID == rackSlot.Data.ProductID);
         }
 
         private static int CountCartBoxes(RackSlot rackSlot)
