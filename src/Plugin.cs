@@ -250,30 +250,22 @@ public class Plugin : BaseUnityPlugin
             cartData.ProductInCarts.Clear();
 
             Singleton<DisplayManager>.Instance.DisplayedProducts
-                .OrderBy(item => Singleton<DisplayManager>.Instance.GetDisplayedProductCount(item.Key))
+                .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key))
                 .ForEach(item =>
                 {
-                    var displayProductCount = item.Value.Sum(displaySlot => displaySlot.ProductCount);
+                    var product = Singleton<IDManager>.Instance.ProductSO(item.Key);
+                    var displayStorageProductCount = item.Value.Sum(displaySlot => product.GridLayoutInStorage.productCount);
 
-                    var inventoryProductCount = 0;
-
-                    var rackSlots = new List<RackSlot>();
-                    Singleton<RackManager>.Instance.RackSlots.TryGetValue(item.Key, out rackSlots);
-                    inventoryProductCount += rackSlots.Sum(rackSlot => rackSlot.ProductCount);
-
-                    inventoryProductCount += Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
-                        .Where(box => box.Product.ID == item.Key)
-                        .Sum(box => box.ProductCount);
-
-
+                    var inventoryProductCount = Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key);
                     var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
-                    var finalAmount = Mathf.CeilToInt((displayProductCount * StockMultiplier.Value - inventoryProductCount)
+
+                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * StockMultiplier.Value - inventoryProductCount)
                         / boxProductCount);
+
+                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
 
                     if (finalAmount > 0)
                     {
-                        Logger.LogDebug($"AutoStock: product={Singleton<IDManager>.Instance.ProductSO(item.Key)}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
-
                         var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
                         var itemQuantity = new ItemQuantity(item.Key, price)
                         {
