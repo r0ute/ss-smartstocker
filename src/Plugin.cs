@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -18,6 +17,16 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<bool> AutofillRack;
 
     internal static ConfigEntry<KeyboardShortcut> ForceAutofillRackKey;
+
+    static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
+
+    static readonly string PRODUCT_DEFICIT_COLOR = "#ff000080";
+
+    static readonly string MAX_PRODUCT_COLOR = "#00000080";
+
+    static readonly float FONT_SIZE_MULTIPLIER = 0.5f;
+
+    static readonly int TEXT_PARAGRAPH_SPACING = -10;
 
     private void Awake()
     {
@@ -81,13 +90,42 @@ public class Plugin : BaseUnityPlugin
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
         }
 
+        
+        [HarmonyPatch(typeof(DisplaySlot), "SetLabel")]
+        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.TakeProductFromDisplay))]
+        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.AddProduct))]
+        [HarmonyPostfix]
+        
+        static void OnUpdateDisplaySlotLabel(ref DisplaySlot __instance)
+        {
+            UpdateLabel(__instance);
+        }
+
+        private static void UpdateLabel(DisplaySlot displaySlot)
+        {
+            if (displaySlot.Data.HasLabel || displaySlot.Data.HasProduct)
+            {
+                var maxProductCount = Singleton<IDManager>.Instance.ProductSO(displaySlot.Data.FirstItemID)
+                    .GridLayoutInStorage.productCount;
+                var label = Traverse.Create(displaySlot).Field("m_Label").GetValue() as Label;
+                var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
+
+                productCountText.paragraphSpacing = TEXT_PARAGRAPH_SPACING;
+                productCountText.text = string.Format("{0}</size><br><size={1}><color={2}>{3}</color></size>",
+                    displaySlot.ProductCount,
+                    productCountText.fontSizeMax * FONT_SIZE_MULTIPLIER,
+                    MAX_PRODUCT_COLOR,
+                    maxProductCount);
+            }
+        }
+
 
         [HarmonyPatch(typeof(RackSlot), "Initialize")]
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RefreshLabel))]
         [HarmonyPatch(typeof(RackSlot), nameof(RackSlot.RePositionBoxes))]
         [HarmonyPostfix]
-        static void OnUpdateLabel(ref RackSlot __instance)
+        static void OnUpdateRackSlotLabel(ref RackSlot __instance)
         {
             UpdateLabel(__instance);
         }
@@ -107,7 +145,9 @@ public class Plugin : BaseUnityPlugin
 
                 if (boxDeficitCount > 0)
                 {
-                    boxCountText += string.Format("<color=\"red\">{0}</color>", boxDeficitCount);
+                    boxCountText += string.Format("<color={0}>{1}</color>",
+                        PRODUCT_DEFICIT_COLOR,
+                        boxDeficitCount);
                 }
 
                 if (boxDeficitCount > 0 && boxSurplusCount > 0)
@@ -117,7 +157,9 @@ public class Plugin : BaseUnityPlugin
 
                 if (boxSurplusCount > 0)
                 {
-                    boxCountText += string.Format("<color=\"green\">{0}</color>", boxSurplusCount);
+                    boxCountText += string.Format("<color={0}>{1}</color>",
+                        PRODUCT_SURPLUS_COLOR,
+                        boxSurplusCount);
                 }
 
                 if (boxCountText.IsNullOrEmpty())
@@ -128,10 +170,10 @@ public class Plugin : BaseUnityPlugin
                 var label = Traverse.Create(rackSlot).Field("m_Label").GetValue() as Label;
                 var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
-                productCountText.paragraphSpacing = -10;
+                productCountText.paragraphSpacing = TEXT_PARAGRAPH_SPACING;
                 productCountText.text = string.Format("{0}</size><br><size={1}>{2}</size>",
                     rackSlot.ProductCount,
-                    productCountText.fontSizeMax * 0.6f,
+                    productCountText.fontSizeMax * FONT_SIZE_MULTIPLIER,
                     boxCountText);
             }
 
