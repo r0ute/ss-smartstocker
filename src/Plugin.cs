@@ -1,4 +1,6 @@
-﻿using System.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -14,9 +16,9 @@ public class Plugin : BaseUnityPlugin
 {
     internal static new ManualLogSource Logger;
 
-    internal static ConfigEntry<bool> AutofillRack;
+    internal static ConfigEntry<bool> AutoStock;
 
-    internal static ConfigEntry<KeyboardShortcut> ForceAutofillRackKey;
+    internal static ConfigEntry<KeyboardShortcut> ForceAutoStockKey;
 
     static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
 
@@ -33,10 +35,10 @@ public class Plugin : BaseUnityPlugin
         // Plugin startup logic
         Logger = base.Logger;
 
-        AutofillRack = Config.Bind("General", "AutofillRack", true, "Enable to rack on day cycle change");
+        AutoStock = Config.Bind("General", "AutoStock", false, "Enable to automated stocking");
 
-        ForceAutofillRackKey = Config.Bind("Key Bindings", "ForceAutofillRackKey",
-                new KeyboardShortcut(KeyCode.E, KeyCode.LeftControl));
+        ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
+                new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
         harmony.PatchAll(typeof(Patches));
@@ -70,9 +72,10 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPostfix]
         static void OnDayUpdate()
         {
-            if (ForceAutofillRackKey.Value.IsDown())
+            if (ForceAutoStockKey.Value.IsDown())
             {
-                AutofillRack(false);
+                Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
+                AutoStock(false);
             }
         }
 
@@ -114,6 +117,12 @@ public class Plugin : BaseUnityPlugin
             {
                 var maxProductCount = Singleton<IDManager>.Instance.ProductSO(displaySlot.Data.FirstItemID)
                     .GridLayoutInStorage.productCount;
+
+                if (maxProductCount == displaySlot.ProductCount)
+                {
+                    return;
+                }
+
                 var label = Traverse.Create(displaySlot).Field("m_Label").GetValue() as Label;
                 var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
@@ -223,20 +232,48 @@ public class Plugin : BaseUnityPlugin
         }
 
 
-        private static void AutofillRack(bool auto = true)
+        private static void AutoStock(bool auto = true)
         {
-            if (auto && !Plugin.AutofillRack.Value)
+            if (auto && !Plugin.AutoStock.Value)
             {
                 return;
             }
 
-
             if (!auto)
             {
-                Singleton<SFXManager>.Instance.PlayCoinSFX();
+                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
             }
 
-            Logger.LogInfo($"Rack autofill finished: auto={auto}");
+
+            var cartData = Singleton<CartManager>.Instance.CartData;
+            cartData.ProductInCarts.Clear();
+
+            Singleton<DisplayManager>.Instance.DisplayedProducts.ForEach(item =>
+            {
+                var displayProductCount = item.Value.Sum(displaySlot => displaySlot.ProductCount);
+
+                var inventoryProductCount = 0;
+
+                var rackSlots = new List<RackSlot>();
+                Singleton<RackManager>.Instance.RackSlots.TryGetValue(item.Key, out rackSlots);
+                inventoryProductCount += rackSlots.Sum(rackSlot => rackSlot.ProductCount);
+
+                inventoryProductCount += Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
+                    .Where(box => box.Product.ID == item.Key)
+                    .Sum(box => box.ProductCount);
+
+                Logger.LogDebug($"AutoStock: product={item.Key}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount}");
+
+                var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                var itemQuantity = new ItemQuantity(item.Key, price)
+                {
+                    FirstItemCount = 1 // TODO: calculate it
+                };
+                Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+            });
+            
+
+            Logger.LogInfo($"Stock update finished: auto={auto}");
 
         }
 
