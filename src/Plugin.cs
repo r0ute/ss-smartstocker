@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -20,6 +21,8 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<KeyboardShortcut> ForceAutoStockKey;
 
+    internal static ConfigEntry<float> StockMultiplier;
+
     static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
 
     static readonly string PRODUCT_DEFICIT_COLOR = "#ff000080";
@@ -35,10 +38,14 @@ public class Plugin : BaseUnityPlugin
         // Plugin startup logic
         Logger = base.Logger;
 
-        AutoStock = Config.Bind("General", "AutoStock", false, "Enable to automated stocking");
+        AutoStock = Config.Bind("General", "AutoStock", false, "Enable automated stocking");
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
                 new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
+
+        StockMultiplier = Config.Bind("General", "StockMultiplier", 2f, new ConfigDescription(
+            "The multiplier is applied to the display slot product count to calculate the final purchase amount",
+                new AcceptableValueRange<float>(0.01f, 10f)));
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
         harmony.PatchAll(typeof(Patches));
@@ -140,7 +147,7 @@ public class Plugin : BaseUnityPlugin
         static void OnInventoryManagerRemoveBox(BoxData boxData)
         {
 
-            Logger.LogInfo($"OnInventoryManagerRemoveBox: ProductID={boxData.ProductID}");
+            // Logger.LogDebug($"OnInventoryManagerRemoveBox: ProductID={boxData.ProductID}");
             Singleton<RackManager>.Instance.RackSlots[boxData.ProductID].ForEach(UpdateLabel);
         }
 
@@ -239,12 +246,6 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
-            if (!auto)
-            {
-                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
-            }
-
-
             var cartData = Singleton<CartManager>.Instance.CartData;
             cartData.ProductInCarts.Clear();
 
@@ -262,16 +263,32 @@ public class Plugin : BaseUnityPlugin
                     .Where(box => box.Product.ID == item.Key)
                     .Sum(box => box.ProductCount);
 
-                Logger.LogDebug($"AutoStock: product={item.Key}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount}");
 
-                var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
-                var itemQuantity = new ItemQuantity(item.Key, price)
+                var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
+                var finalAmount = Mathf.CeilToInt((displayProductCount * StockMultiplier.Value - inventoryProductCount)
+                    / boxProductCount);
+
+                if (finalAmount > 0)
                 {
-                    FirstItemCount = 1 // TODO: calculate it
-                };
-                Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+                    Logger.LogDebug($"AutoStock: product={Singleton<IDManager>.Instance.ProductSO(item.Key)}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
+
+                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                    var itemQuantity = new ItemQuantity(item.Key, price)
+                    {
+                        FirstItemCount = finalAmount
+                    };
+                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+
+                }
+
             });
-            
+
+
+            if (!auto)
+            {
+                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
+            }
+
 
             Logger.LogInfo($"Stock update finished: auto={auto}");
 
