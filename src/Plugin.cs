@@ -249,39 +249,41 @@ public class Plugin : BaseUnityPlugin
             var cartData = Singleton<CartManager>.Instance.CartData;
             cartData.ProductInCarts.Clear();
 
-            Singleton<DisplayManager>.Instance.DisplayedProducts.ForEach(item =>
-            {
-                var displayProductCount = item.Value.Sum(displaySlot => displaySlot.ProductCount);
-
-                var inventoryProductCount = 0;
-
-                var rackSlots = new List<RackSlot>();
-                Singleton<RackManager>.Instance.RackSlots.TryGetValue(item.Key, out rackSlots);
-                inventoryProductCount += rackSlots.Sum(rackSlot => rackSlot.ProductCount);
-
-                inventoryProductCount += Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
-                    .Where(box => box.Product.ID == item.Key)
-                    .Sum(box => box.ProductCount);
-
-
-                var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
-                var finalAmount = Mathf.CeilToInt((displayProductCount * StockMultiplier.Value - inventoryProductCount)
-                    / boxProductCount);
-
-                if (finalAmount > 0)
+            Singleton<DisplayManager>.Instance.DisplayedProducts
+                .OrderBy(item => Singleton<DisplayManager>.Instance.GetDisplayedProductCount(item.Key))
+                .ForEach(item =>
                 {
-                    Logger.LogDebug($"AutoStock: product={Singleton<IDManager>.Instance.ProductSO(item.Key)}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
+                    var displayProductCount = item.Value.Sum(displaySlot => displaySlot.ProductCount);
 
-                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
-                    var itemQuantity = new ItemQuantity(item.Key, price)
+                    var inventoryProductCount = 0;
+
+                    var rackSlots = new List<RackSlot>();
+                    Singleton<RackManager>.Instance.RackSlots.TryGetValue(item.Key, out rackSlots);
+                    inventoryProductCount += rackSlots.Sum(rackSlot => rackSlot.ProductCount);
+
+                    inventoryProductCount += Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
+                        .Where(box => box.Product.ID == item.Key)
+                        .Sum(box => box.ProductCount);
+
+
+                    var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
+                    var finalAmount = Mathf.CeilToInt((displayProductCount * StockMultiplier.Value - inventoryProductCount)
+                        / boxProductCount);
+
+                    if (finalAmount > 0)
                     {
-                        FirstItemCount = finalAmount
-                    };
-                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+                        Logger.LogDebug($"AutoStock: product={Singleton<IDManager>.Instance.ProductSO(item.Key)}, displayProductCount={displayProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
 
-                }
+                        var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                        var itemQuantity = new ItemQuantity(item.Key, price)
+                        {
+                            FirstItemCount = finalAmount
+                        };
+                        Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
 
-            });
+                    }
+
+                });
 
 
             if (!auto)
