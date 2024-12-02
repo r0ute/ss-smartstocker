@@ -24,6 +24,9 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<float> StockMultiplier;
 
+    internal static ConfigEntry<float> MinimumReserve;
+
+    //todo: replace w/ Color; make it ConfigEntry
     static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
 
     static readonly string PRODUCT_DEFICIT_COLOR = "#ff000080";
@@ -49,6 +52,10 @@ public class Plugin : BaseUnityPlugin
 
         StockMultiplier = Config.Bind("General", "StockMultiplier", 2f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
+                new AcceptableValueRange<float>(0.01f, 10f)));
+
+        MinimumReserve = Config.Bind("General", "MinimumReserve", 500f, new ConfigDescription(
+            "Reserved amount that is conditionally accessible based on the balance",
                 new AcceptableValueRange<float>(0.01f, 10f)));
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
@@ -176,7 +183,7 @@ public class Plugin : BaseUnityPlugin
                     Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
                     yield return null;
 
-                    if (!cartManager.MarketShoppingCart.GetHasMoneyForPurchase())
+                    if (!HasEnoughMoney(cartManager))
                     {
                         Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
                         CleanMarketShoppingCart();
@@ -200,8 +207,7 @@ public class Plugin : BaseUnityPlugin
                 yield return null;
             }
 
-            if (cartManager.MarketShoppingCart.ItemCountInCart > 0
-                && cartManager.MarketShoppingCart.GetHasMoneyForPurchase())
+            if (cartManager.MarketShoppingCart.ItemCountInCart > 0)
             {
                 Purchase(cartManager, auto);
             }
@@ -211,6 +217,10 @@ public class Plugin : BaseUnityPlugin
 
         private static void Purchase(CartManager cartManager, bool auto)
         {
+            if (!HasEnoughMoney(cartManager))
+            {
+                return;
+            }
 
             Logger.LogInfo($"AutoStock: Purchased price={cartManager.MarketShoppingCart.GetTotalPrice()}");
             cartManager.MarketShoppingCart.Purchase();
@@ -222,11 +232,17 @@ public class Plugin : BaseUnityPlugin
 
         }
 
+        private static bool HasEnoughMoney(CartManager cartManager)
+        {
+            return cartManager.MarketShoppingCart.GetHasMoneyForPurchase()
+                && Singleton<MoneyManager>.Instance.HasMoney(cartManager.MarketShoppingCart.GetTotalPrice() + MinimumReserve.Value);
+
+        }
+
         internal static void CleanMarketShoppingCart()
         {
             CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
         }
-
     }
 
     class RackSlotInfo
