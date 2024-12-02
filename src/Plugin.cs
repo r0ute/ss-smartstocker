@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+﻿using System;
 using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
@@ -46,13 +46,14 @@ public class Plugin : BaseUnityPlugin
                 new AcceptableValueRange<float>(0.01f, 10f)));
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
-        harmony.PatchAll(typeof(Patches));
+        harmony.PatchAll(typeof(DisplaySlotInfo));
+        harmony.PatchAll(typeof(RackSlotInfo));
+        harmony.PatchAll(typeof(StockManager));
 
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
 
-
-    class Patches
+    class StockManager
     {
 
         [HarmonyPatch(typeof(PricingProductViewer), nameof(PricingProductViewer.UpdateUnlockedProducts))]
@@ -84,6 +85,73 @@ public class Plugin : BaseUnityPlugin
             }
         }
 
+        [HarmonyReversePatch]
+        [HarmonyPatch(typeof(MarketShoppingCart), "CleanCart")]
+        static void CleanMarketShoppingCart(object instance) => throw new NotImplementedException();
+
+        private static void AutoStock(bool auto = true)
+        {
+            if (auto && !Plugin.AutoStock.Value)
+            {
+                return;
+            }
+
+            CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
+            var totalProductsToBuy = 0;
+
+            Singleton<DisplayManager>.Instance.DisplayedProducts
+                .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key))
+                .ForEach(item =>
+                {
+                    var product = Singleton<IDManager>.Instance.ProductSO(item.Key);
+                    var displayStorageProductCount = item.Value.Sum(displaySlot => product.GridLayoutInStorage.productCount);
+
+                    var inventoryProductCount = Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key);
+                    var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
+
+                    var targetProductCount = displayStorageProductCount * StockMultiplier.Value;
+                    var finalProductCount = targetProductCount - inventoryProductCount;
+
+                    if (finalProductCount <= 0)
+                    {
+                        return;
+                    }
+
+                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * StockMultiplier.Value - inventoryProductCount)
+                        / boxProductCount);
+
+                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
+                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {StockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
+
+                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                    var itemQuantity = new ItemQuantity(item.Key, price)
+                    {
+                        FirstItemCount = finalAmount
+                    };
+
+                    Logger.LogDebug($"AutoStock: product={product}, FirstItemID={itemQuantity.FirstItemID}, FirstItemCount={itemQuantity.FirstItemCount}");
+                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
+                    totalProductsToBuy++;
+                });
+
+            Logger.LogInfo($"AutoStock: totalProductsToBuy={totalProductsToBuy}");
+
+            if (!auto)
+            {
+                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
+            }
+
+
+            Logger.LogInfo($"Stock update finished: auto={auto}");
+
+        }
+
+    }
+
+    class RackSlotInfo
+    {
+
         [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
         [HarmonyPostfix]
         static void OnMarketShoppingCartAddProduct(ItemQuantity salesItem, SalesType salesType)
@@ -107,40 +175,6 @@ public class Plugin : BaseUnityPlugin
             }
 
             Singleton<RackManager>.Instance.RackSlots[productData.FirstItemID].ForEach(UpdateLabel);
-        }
-
-
-        [HarmonyPatch(typeof(DisplaySlot), "SetLabel")]
-        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.TakeProductFromDisplay))]
-        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.AddProduct))]
-        [HarmonyPostfix]
-        static void OnUpdateDisplaySlotLabel(ref DisplaySlot __instance)
-        {
-            UpdateLabel(__instance);
-        }
-
-        private static void UpdateLabel(DisplaySlot displaySlot)
-        {
-            if (displaySlot.Data.HasLabel || displaySlot.Data.HasProduct)
-            {
-                var maxProductCount = Singleton<IDManager>.Instance.ProductSO(displaySlot.Data.FirstItemID)
-                    .GridLayoutInStorage.productCount;
-
-                if (maxProductCount == displaySlot.ProductCount)
-                {
-                    return;
-                }
-
-                var label = Traverse.Create(displaySlot).Field("m_Label").GetValue() as Label;
-                var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
-
-                productCountText.paragraphSpacing = TEXT_PARAGRAPH_SPACING;
-                productCountText.text = string.Format("{0}</size><br><size={1}><color={2}>{3}</color></size>",
-                    displaySlot.ProductCount,
-                    productCountText.fontSizeMax * FONT_SIZE_MULTIPLIER,
-                    MAX_PRODUCT_COLOR,
-                    maxProductCount);
-            }
         }
 
         [HarmonyPatch(typeof(InventoryManager), nameof(InventoryManager.RemoveBox), [typeof(BoxData)])]
@@ -237,75 +271,44 @@ public class Plugin : BaseUnityPlugin
 
         }
 
+    }
 
+    class DisplaySlotInfo
+    {
 
-        [HarmonyPatch(typeof(SalesItem), nameof(SalesItem.UpdateInventoryAmountText))]
+        [HarmonyPatch(typeof(DisplaySlot), "SetLabel")]
+        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.TakeProductFromDisplay))]
+        [HarmonyPatch(typeof(DisplaySlot), nameof(DisplaySlot.AddProduct))]
         [HarmonyPostfix]
-        static void OnSalesItemUpdateInventoryAmountText(ref SalesItem __instance)
+        static void OnUpdateDisplaySlotLabel(ref DisplaySlot __instance)
         {
-
+            UpdateLabel(__instance);
         }
 
-
-        private static void AutoStock(bool auto = true)
+        private static void UpdateLabel(DisplaySlot displaySlot)
         {
-            if (auto && !Plugin.AutoStock.Value)
+            if (displaySlot.Data.HasLabel || displaySlot.Data.HasProduct)
             {
-                return;
-            }
+                var maxProductCount = Singleton<IDManager>.Instance.ProductSO(displaySlot.Data.FirstItemID)
+                    .GridLayoutInStorage.productCount;
 
-            var cartData = Singleton<CartManager>.Instance.CartData;
-            // todo: replace 2 calls w/ cleancart()
-            cartData.ProductInCarts.Clear();
-            Singleton<CartManager>.Instance.MarketShoppingCart.UpdateTotalPrice();
-
-            Singleton<DisplayManager>.Instance.DisplayedProducts
-                .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key))
-                .ForEach(item =>
+                if (maxProductCount == displaySlot.ProductCount)
                 {
-                    var product = Singleton<IDManager>.Instance.ProductSO(item.Key);
-                    var displayStorageProductCount = item.Value.Sum(displaySlot => product.GridLayoutInStorage.productCount);
+                    return;
+                }
 
-                    var inventoryProductCount = Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key);
-                    var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
+                var label = Traverse.Create(displaySlot).Field("m_Label").GetValue() as Label;
+                var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
-                    var targetProductCount = displayStorageProductCount * StockMultiplier.Value;
-                    var finalProductCount = targetProductCount - inventoryProductCount;
-
-                    if (finalProductCount <= 0)
-                    {
-                        return;
-                    }
-
-                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * StockMultiplier.Value - inventoryProductCount)
-                        / boxProductCount);
-
-                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
-                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {StockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
-
-                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
-                    var itemQuantity = new ItemQuantity(item.Key, price)
-                    {
-                        FirstItemCount = finalAmount
-                    };
-
-                    Logger.LogDebug($"AutoStock: product={product}, FirstItemID={itemQuantity.FirstItemID}, FirstItemCount={itemQuantity.FirstItemCount}");
-                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
-                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
-                });
-
-
-
-            if (!auto)
-            {
-                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
+                productCountText.paragraphSpacing = TEXT_PARAGRAPH_SPACING;
+                productCountText.text = string.Format("{0}</size><br><size={1}><color={2}>{3}</color></size>",
+                    displaySlot.ProductCount,
+                    productCountText.fontSizeMax * FONT_SIZE_MULTIPLIER,
+                    MAX_PRODUCT_COLOR,
+                    maxProductCount);
             }
-
-
-            Logger.LogInfo($"Stock update finished: auto={auto}");
-
         }
-
 
     }
+
 }
