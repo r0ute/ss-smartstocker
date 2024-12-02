@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.ComponentModel;
 using System.Linq;
-using System.Security.Cryptography.X509Certificates;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -95,7 +93,6 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
-            Logger.LogDebug($"OnMarketShoppingCartAddProduct: product={salesItem.FirstItemID}");
             Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
         }
 
@@ -104,7 +101,11 @@ public class Plugin : BaseUnityPlugin
         static void OnMarketShoppingCartRemoveProduct(ItemQuantity productData, SalesType salesType)
         {
 
-            Logger.LogDebug($"OnMarketShoppingCartRemoveProduct: product={productData.FirstItemID}");
+            if (salesType != SalesType.PRODUCT)
+            {
+                return;
+            }
+
             Singleton<RackManager>.Instance.RackSlots[productData.FirstItemID].ForEach(UpdateLabel);
         }
 
@@ -147,7 +148,6 @@ public class Plugin : BaseUnityPlugin
         static void OnInventoryManagerRemoveBox(BoxData boxData)
         {
 
-            // Logger.LogDebug($"OnInventoryManagerRemoveBox: ProductID={boxData.ProductID}");
             Singleton<RackManager>.Instance.RackSlots[boxData.ProductID].ForEach(UpdateLabel);
         }
 
@@ -163,7 +163,6 @@ public class Plugin : BaseUnityPlugin
 
         private static void UpdateLabel(RackSlot rackSlot)
         {
-
             if (rackSlot.HasLabel && !rackSlot.Full)
             {
 
@@ -239,6 +238,15 @@ public class Plugin : BaseUnityPlugin
         }
 
 
+
+        [HarmonyPatch(typeof(SalesItem), nameof(SalesItem.UpdateInventoryAmountText))]
+        [HarmonyPostfix]
+        static void OnSalesItemUpdateInventoryAmountText(ref SalesItem __instance)
+        {
+
+        }
+
+
         private static void AutoStock(bool auto = true)
         {
             if (auto && !Plugin.AutoStock.Value)
@@ -247,7 +255,9 @@ public class Plugin : BaseUnityPlugin
             }
 
             var cartData = Singleton<CartManager>.Instance.CartData;
+            // todo: replace 2 calls w/ cleancart()
             cartData.ProductInCarts.Clear();
+            Singleton<CartManager>.Instance.MarketShoppingCart.UpdateTotalPrice();
 
             Singleton<DisplayManager>.Instance.DisplayedProducts
                 .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key))
@@ -259,23 +269,31 @@ public class Plugin : BaseUnityPlugin
                     var inventoryProductCount = Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key);
                     var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
 
+                    var targetProductCount = displayStorageProductCount * StockMultiplier.Value;
+                    var finalProductCount = targetProductCount - inventoryProductCount;
+
+                    if (finalProductCount <= 0)
+                    {
+                        return;
+                    }
+
                     var finalAmount = Mathf.CeilToInt((displayStorageProductCount * StockMultiplier.Value - inventoryProductCount)
                         / boxProductCount);
 
-                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},boxProductCount={boxProductCount},finalAmount={finalAmount}");
+                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
+                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {StockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
 
-                    if (finalAmount > 0)
+                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                    var itemQuantity = new ItemQuantity(item.Key, price)
                     {
-                        var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
-                        var itemQuantity = new ItemQuantity(item.Key, price)
-                        {
-                            FirstItemCount = finalAmount
-                        };
-                        Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+                        FirstItemCount = finalAmount
+                    };
 
-                    }
-
+                    Logger.LogDebug($"AutoStock: product={product}, FirstItemID={itemQuantity.FirstItemID}, FirstItemCount={itemQuantity.FirstItemCount}");
+                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
+                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
                 });
+
 
 
             if (!auto)
