@@ -2,9 +2,11 @@ name: .NET
 
 on:
   push:
-    branches: ["master"]
+    branches: [ "master" ]
+    tags: 
+    - "*"
   pull_request:
-    branches: ["master"]
+    branches: [ "master" ]
 
 env:
   TARGET_FRAMEWORK: netstandard2.1
@@ -14,34 +16,33 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-      - name: Restore dependencies
-        run: dotnet restore
-      - name: Build
-        run: dotnet build --no-restore
-      - name: Test
-        run: dotnet test --no-build --verbosity normal
-      - name: Publish
-        if: startsWith(github.ref, 'refs/tags/')
-        run: dotnet publish -c Release --no-restore
-      - name: Package
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          cd bin/Release/netstandard2.1/publish/
-          mkdir -p $PLUGIN_DIR
-          mv $ASSEMBLY_NAME.dll $PLUGIN_DIR/$ASSEMBLY_NAME-$GITHUB_REF_NAME.dll
-          zip -r $ASSEMBLY_NAME-$GITHUB_REF_NAME.zip $PLUGIN_DIR
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: bin/Release/$TARGET_FRAMEWORK/publish/$ASSEMBLY_NAME-$GITHUB_REF_NAME.zip
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+    - name: Publish
+      if: startsWith(github.ref, 'refs/tags/')
+      run: dotnet publish -c Release --no-restore
+    - name: Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd bin/Release/netstandard2.1/publish/
+        mkdir -p $PLUGIN_DIR
+        mv $ASSEMBLY_NAME.dll $PLUGIN_DIR/$ASSEMBLY_NAME-$GITHUB_REF_NAME.dll
+        zip -r $ASSEMBLY_NAME-$GITHUB_REF_NAME.zip $PLUGIN_DIR
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: bin/Release/$TARGET_FRAMEWORK/publish/$ASSEMBLY_NAME-$GITHUB_REF_NAME.zip
