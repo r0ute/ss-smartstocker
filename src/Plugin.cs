@@ -22,7 +22,7 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<KeyboardShortcut> CleanShoppingCartKey;
 
-    internal static ConfigEntry<float> StockMultiplier;
+    internal static ConfigEntry<float> RackStockMultiplier;
 
     internal static ConfigEntry<float> MinimumReserve;
 
@@ -42,7 +42,7 @@ public class Plugin : BaseUnityPlugin
         // Plugin startup logic
         Logger = base.Logger;
 
-        AutoStock = Config.Bind("General", "AutoStock", false, "Enable automated stocking");
+        AutoStock = Config.Bind("General", "AutoStock", true, "Enable automated stocking");
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
                 new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
@@ -50,13 +50,13 @@ public class Plugin : BaseUnityPlugin
         CleanShoppingCartKey = Config.Bind("Key Bindings", "CleanShoppingCartKey",
                 new KeyboardShortcut(KeyCode.C, KeyCode.LeftControl));
 
-        StockMultiplier = Config.Bind("General", "StockMultiplier", 2f, new ConfigDescription(
+        RackStockMultiplier = Config.Bind("General", "RackStockMultiplier", 1f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
-                new AcceptableValueRange<float>(0.01f, 10f)));
+                new AcceptableValueRange<float>(0.01f, 5f)));
 
         MinimumReserve = Config.Bind("General", "MinimumReserve", 500f, new ConfigDescription(
             "Reserved amount that is conditionally accessible based on the balance",
-                new AcceptableValueRange<float>(0.01f, 10f)));
+                new AcceptableValueRange<float>(0f, 100_000f)));
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
         harmony.PatchAll(typeof(DisplaySlotInfo));
@@ -84,33 +84,16 @@ public class Plugin : BaseUnityPlugin
     class StockManager
     {
 
-        [HarmonyPatch(typeof(PricingProductViewer), nameof(PricingProductViewer.UpdateUnlockedProducts))]
-        [HarmonyPostfix]
-        static void OnUpdateUnlockedProducts(int licenseID)
-        {
-        }
-
         [HarmonyPatch(typeof(DayCycleManager), nameof(DayCycleManager.StartNextDay))]
         [HarmonyPostfix]
-        static void OnNextDay(ref DayCycleManager __instance)
+        static void OnStartNextDay(ref DayCycleManager __instance)
         {
             if (!AutoStock.Value)
             {
                 return;
             }
 
-            __instance.StartCoroutine(AutoStockProducts());
-        }
-
-        [HarmonyPatch(typeof(DayCycleManager), "Start")]
-        [HarmonyPostfix]
-        static void OnDayStart(ref DayCycleManager __instance)
-        {
-            if (!AutoStock.Value)
-            {
-                return;
-            }
-
+            Logger.LogDebug($"AutoStock: OnStartNextDay");
             __instance.StartCoroutine(AutoStockProducts());
         }
 
@@ -118,7 +101,6 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPostfix]
         static void OnDayUpdate(ref DayCycleManager __instance)
         {
-
 
             if (__instance.CurrentMinute >= 60)
             {
@@ -142,6 +124,11 @@ public class Plugin : BaseUnityPlugin
 
             if (cartManager.MarketShoppingCart.TooLateToOrderGoods)
             {
+                if (!auto)
+                {
+                    Singleton<ScannerDevice>.Instance.PlayAudio(true);
+                }
+
                 yield break;
             }
 
@@ -160,16 +147,16 @@ public class Plugin : BaseUnityPlugin
                 yield return null;
                 var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
 
-                var targetProductCount = displayStorageProductCount * StockMultiplier.Value;
+                var targetProductCount = displayStorageProductCount * RackStockMultiplier.Value;
                 var finalProductCount = targetProductCount - inventoryProductCount;
 
                 if (finalProductCount > 0)
                 {
-                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * StockMultiplier.Value - inventoryProductCount)
-                    / boxProductCount);
+                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * RackStockMultiplier.Value
+                        - inventoryProductCount) / boxProductCount);
 
                     Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
-                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {StockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
+                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {RackStockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
 
                     var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
                     var itemQuantity = new ItemQuantity(item.Key, price)
@@ -222,7 +209,6 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
-            Logger.LogInfo($"AutoStock: Purchased price={cartManager.MarketShoppingCart.GetTotalPrice()}");
             cartManager.MarketShoppingCart.Purchase();
 
             if (!auto)
@@ -234,8 +220,10 @@ public class Plugin : BaseUnityPlugin
 
         private static bool HasEnoughMoney(CartManager cartManager)
         {
-            return cartManager.MarketShoppingCart.GetHasMoneyForPurchase()
-                && Singleton<MoneyManager>.Instance.HasMoney(cartManager.MarketShoppingCart.GetTotalPrice() + MinimumReserve.Value);
+            Logger.LogDebug($"AutoStock: GetTotalPrice={cartManager.MarketShoppingCart.GetTotalPrice()},CurrentShippingCost={cartManager.MarketShoppingCart.CurrentShippingCost},MinimumReserve={(float)Math.Round(MinimumReserve.Value, 2)}");
+            return Singleton<MoneyManager>.Instance.HasMoney(cartManager.MarketShoppingCart.GetTotalPrice()
+                + cartManager.MarketShoppingCart.CurrentShippingCost
+                + MinimumReserve.Value);
 
         }
 
