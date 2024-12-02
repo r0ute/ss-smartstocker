@@ -19,6 +19,8 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<KeyboardShortcut> ForceAutoStockKey;
 
+    internal static ConfigEntry<KeyboardShortcut> CleanShoppingCartKey;
+
     internal static ConfigEntry<float> StockMultiplier;
 
     static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
@@ -40,6 +42,9 @@ public class Plugin : BaseUnityPlugin
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
                 new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
+
+        CleanShoppingCartKey = Config.Bind("Key Bindings", "CleanShoppingCartKey",
+                new KeyboardShortcut(KeyCode.C, KeyCode.LeftControl));
 
         StockMultiplier = Config.Bind("General", "StockMultiplier", 2f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
@@ -83,6 +88,11 @@ public class Plugin : BaseUnityPlugin
                 Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
                 AutoStock(false);
             }
+
+            if (CleanShoppingCartKey.Value.IsDown()) {
+                Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
+                CleanMarketShoppingCart();
+            }
         }
 
         [HarmonyReversePatch]
@@ -96,8 +106,9 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
-            CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
+            
             var totalProductsToBuy = 0;
+            CleanMarketShoppingCart();
 
             Singleton<DisplayManager>.Instance.DisplayedProducts
                 .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key))
@@ -145,6 +156,10 @@ public class Plugin : BaseUnityPlugin
 
             Logger.LogInfo($"Stock update finished: auto={auto}");
 
+        }
+
+        private static void CleanMarketShoppingCart() {
+            CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
         }
 
     }
