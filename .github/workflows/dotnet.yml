@@ -38,7 +38,7 @@ jobs:
       - name: Package
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          cd bin/Release/netstandard2.1/publish/
+          cd bin/Release/$TARGET_FRAMEWORK/publish/
           mkdir -p $PLUGIN_DIR
           mv $ASSEMBLY_NAME.dll $PLUGIN_DIR/$ASSEMBLY_NAME-$GITHUB_REF_NAME.dll
           zip -r $ASSEMBLY_NAME-$GITHUB_REF_NAME.zip $PLUGIN_DIR
