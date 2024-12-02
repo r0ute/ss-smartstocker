@@ -42,8 +42,9 @@ jobs:
           mkdir -p $PLUGIN_DIR
           mv $ASSEMBLY_NAME.dll $PLUGIN_DIR/$ASSEMBLY_NAME-$GITHUB_REF_NAME.dll
           zip -r $ASSEMBLY_NAME-$GITHUB_REF_NAME.zip $PLUGIN_DIR
+          echo "file_name=$(basename $ASSEMBLY_NAME-$GITHUB_REF_NAME.zip)" >> $GITHUB_ENV
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: bin/Release/$TARGET_FRAMEWORK/publish/$ASSEMBLY_NAME-$GITHUB_REF_NAME.zip
+          files: ${{ env.file_name }}
