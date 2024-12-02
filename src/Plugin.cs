@@ -22,6 +22,10 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<KeyboardShortcut> CleanShoppingCartKey;
 
+    internal static ConfigEntry<bool> DisplayLabelInfo;
+
+    internal static ConfigEntry<bool> RackLabelInfo;
+
     internal static ConfigEntry<float> RackStockMultiplier;
 
     internal static ConfigEntry<float> MinimumReserve;
@@ -58,9 +62,22 @@ public class Plugin : BaseUnityPlugin
             "Reserved amount that is conditionally accessible based on the balance",
                 new AcceptableValueRange<float>(0f, 100_000f)));
 
+        DisplayLabelInfo = Config.Bind("Label", "DisplayLabelInfo", true, "Show additional information on display label");
+
+        RackLabelInfo = Config.Bind("Label", "RackLabelInfo", true, "Show additional information on rack label");
+
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
-        harmony.PatchAll(typeof(DisplaySlotInfo));
-        harmony.PatchAll(typeof(RackSlotInfo));
+
+        if (DisplayLabelInfo.Value)
+        {
+            harmony.PatchAll(typeof(DisplaySlotInfo));
+        }
+
+        if (RackLabelInfo.Value)
+        {
+            harmony.PatchAll(typeof(RackSlotInfo));
+        }
+
         harmony.PatchAll(typeof(StockManager));
 
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
