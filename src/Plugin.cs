@@ -58,6 +58,21 @@ public class Plugin : BaseUnityPlugin
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
 
+    public void Update()
+    {
+        if (ForceAutoStockKey.Value.IsDown())
+        {
+            Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
+            StockManager.AutoStockProducts(false);
+        }
+
+        if (CleanShoppingCartKey.Value.IsDown())
+        {
+            Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
+            StockManager.CleanMarketShoppingCart();
+        }
+    }
+
     class StockManager
     {
 
@@ -71,27 +86,35 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPostfix]
         static void OnNextDay()
         {
+            if (!AutoStock.Value)
+            {
+                return;
+            }
+
+            AutoStockProducts();
         }
 
         [HarmonyPatch(typeof(DayCycleManager), "Start")]
         [HarmonyPostfix]
         static void OnDayStart()
         {
+            if (!AutoStock.Value)
+            {
+                return;
+            }
+
+            AutoStockProducts(true);
         }
 
         [HarmonyPatch(typeof(DayCycleManager), "Update")]
         [HarmonyPostfix]
-        static void OnDayUpdate()
+        static void OnDayUpdate(ref DayCycleManager __instance)
         {
-            if (ForceAutoStockKey.Value.IsDown())
-            {
-                Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
-                AutoStock(false);
-            }
 
-            if (CleanShoppingCartKey.Value.IsDown()) {
-                Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
-                CleanMarketShoppingCart();
+
+            if (__instance.CurrentMinute >= 60)
+            {
+                Logger.LogInfo($"AutoStock: CurrentMinute={__instance.CurrentMinute}");
             }
         }
 
@@ -99,15 +122,13 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPatch(typeof(MarketShoppingCart), "CleanCart")]
         static void CleanMarketShoppingCart(object instance) => throw new NotImplementedException();
 
-        private static void AutoStock(bool auto = true)
+        internal static void AutoStockProducts(bool auto = true)
         {
             if (auto && !Plugin.AutoStock.Value)
             {
                 return;
             }
 
-            
-            var totalProductsToBuy = 0;
             CleanMarketShoppingCart();
 
             Singleton<DisplayManager>.Instance.DisplayedProducts
@@ -141,24 +162,35 @@ public class Plugin : BaseUnityPlugin
                     };
 
                     Logger.LogDebug($"AutoStock: product={product}, FirstItemID={itemQuantity.FirstItemID}, FirstItemCount={itemQuantity.FirstItemCount}");
-                    Singleton<CartManager>.Instance.AddCart(itemQuantity, SalesType.PRODUCT);
-                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
-                    totalProductsToBuy++;
-                });
+                    var cartManager = Singleton<CartManager>.Instance;
 
-            Logger.LogInfo($"AutoStock: totalProductsToBuy={totalProductsToBuy}");
+                    cartManager.AddCart(itemQuantity, SalesType.PRODUCT);
+                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
+
+                    if (cartManager.MarketShoppingCart.GetHasMoneyForPurchase())
+                    {
+                        Logger.LogInfo($"AutoStock: Purchased product={product}, quantity={itemQuantity.FirstItemCount}");
+                        cartManager.MarketShoppingCart.Purchase();
+                    }
+                    else
+                    {
+                        cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
+                        Singleton<ScannerDevice>.Instance.PlayAudio(true);
+                        Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
+                    }
+                });
 
             if (!auto)
             {
-                Singleton<SFXManager>.Instance.PlayMoneyPaperSFX();
+                Singleton<ScannerDevice>.Instance.PlayAudio(false);
             }
-
 
             Logger.LogInfo($"Stock update finished: auto={auto}");
 
         }
 
-        private static void CleanMarketShoppingCart() {
+        internal static void CleanMarketShoppingCart()
+        {
             CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
         }
 
