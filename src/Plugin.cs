@@ -83,21 +83,6 @@ public class Plugin : BaseUnityPlugin
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
 
-    public void Update()
-    {
-        if (ForceAutoStockKey.Value.IsDown())
-        {
-            Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
-            StartCoroutine(StockManager.AutoStockProducts(auto: false));
-        }
-
-        if (CleanShoppingCartKey.Value.IsDown())
-        {
-            Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
-            StockManager.CleanMarketShoppingCart();
-        }
-    }
-
     class StockManager
     {
 
@@ -118,6 +103,18 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPostfix]
         static void OnDayUpdate(ref DayCycleManager __instance)
         {
+
+            if (ForceAutoStockKey.Value.IsDown())
+            {
+                Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
+                __instance.StartCoroutine(AutoStockProducts(auto: false));
+            }
+
+            if (CleanShoppingCartKey.Value.IsDown())
+            {
+                Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
+                CleanMarketShoppingCart();
+            }
 
             if (__instance.CurrentMinute >= 60)
             {
@@ -141,6 +138,8 @@ public class Plugin : BaseUnityPlugin
 
             if (cartManager.MarketShoppingCart.TooLateToOrderGoods)
             {
+                Logger.LogDebug($"AutoStock: TooLateToOrderGoods");
+
                 if (!auto)
                 {
                     Singleton<ScannerDevice>.Instance.PlayAudio(true);
@@ -151,56 +150,68 @@ public class Plugin : BaseUnityPlugin
 
             CleanMarketShoppingCart();
 
-            var products = Singleton<DisplayManager>.Instance.DisplayedProducts
-                .OrderBy(item => Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key));
+            var productsByInventoryAmount = Singleton<DisplayManager>.Instance.DisplayedProducts.Keys
+                .ToDictionary(key => key, Singleton<InventoryManager>.Instance.GetInventoryAmount);
+            var sortedProductsByInventoryAmount = productsByInventoryAmount.OrderBy(item => item.Value);
+            Logger.LogDebug($"AutoStock: sortedProductsByInventoryAmount");
+            sortedProductsByInventoryAmount.Select(i => $"{i.Key}: {i.Value}").ToList().ForEach(Logger.LogDebug);
             yield return null;
 
-            foreach (var item in products)
+            foreach (var item in sortedProductsByInventoryAmount)
             {
-                var product = Singleton<IDManager>.Instance.ProductSO(item.Key);
-                var displayStorageProductCount = item.Value.Sum(displaySlot => product.GridLayoutInStorage.productCount);
-                yield return null;
-                var inventoryProductCount = Singleton<InventoryManager>.Instance.GetInventoryAmount(item.Key);
-                yield return null;
-                var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
+                if (item.Key <= 0)
+                {
+                    continue;
+                }
 
+                var product = Singleton<IDManager>.Instance.ProductSO(item.Key);
+                var displayStorageProductCount = Singleton<DisplayManager>.Instance.DisplayedProducts[item.Key].Count
+                    * product.GridLayoutInStorage.productCount;
+                yield return null;
+
+                var inventoryProductCount = item.Value;
+                var boxProductCount = Singleton<IDManager>.Instance.ProductSO(item.Key).GridLayoutInBox.productCount;
                 var targetProductCount = displayStorageProductCount * RackStockMultiplier.Value;
                 var finalProductCount = targetProductCount - inventoryProductCount;
 
-                if (finalProductCount > 0)
+                if (finalProductCount <= 0)
                 {
-                    var finalAmount = Mathf.CeilToInt((displayStorageProductCount * RackStockMultiplier.Value
-                        - inventoryProductCount) / boxProductCount);
+                    continue;
+                }
 
-                    Logger.LogDebug($"AutoStock: product={product}, displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
-                    Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {RackStockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
+                var finalAmount = Mathf.CeilToInt((displayStorageProductCount * RackStockMultiplier.Value
+                                       - inventoryProductCount) / boxProductCount);
 
-                    var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
-                    var itemQuantity = new ItemQuantity(item.Key, price)
+                Logger.LogDebug($"AutoStock: product={product},displayStorageProductCount={displayStorageProductCount}, inventoryProductCount={inventoryProductCount},targetAmount={targetProductCount},finalProductCount={finalProductCount},finalAmount={finalAmount}");
+                Logger.LogDebug($"AutoStock: product={product} ({displayStorageProductCount} * {RackStockMultiplier.Value} (={targetProductCount}) - {inventoryProductCount} (={finalProductCount}) / {boxProductCount} rounds to {finalAmount}");
+
+                var price = Singleton<PriceManager>.Instance.SellingPrice(item.Key);
+                var itemQuantity = new ItemQuantity(item.Key, price)
+                {
+                    FirstItemCount = finalAmount
+                };
+
+                Logger.LogDebug($"AutoStock: product={product},FirstItemID={itemQuantity.FirstItemID},FirstItemCount={itemQuantity.FirstItemCount}");
+
+                cartManager.AddCart(itemQuantity, SalesType.PRODUCT);
+                Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
+                Logger.LogDebug($"AutoStock: AddCart product={product}");
+                yield return null;
+
+                if (!HasEnoughMoney(cartManager))
+                {
+                    Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
+                    CleanMarketShoppingCart();
+                    // todo: remove previous product instead of cleaning the cart
+
+                    if (!auto)
                     {
-                        FirstItemCount = finalAmount
-                    };
-
-                    Logger.LogDebug($"AutoStock: product={product}, FirstItemID={itemQuantity.FirstItemID}, FirstItemCount={itemQuantity.FirstItemCount}");
-
-                    cartManager.AddCart(itemQuantity, SalesType.PRODUCT);
-                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
-                    yield return null;
-
-                    if (!HasEnoughMoney(cartManager))
-                    {
-                        Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
-                        CleanMarketShoppingCart();
-
-                        if (!auto)
-                        {
-                            Singleton<ScannerDevice>.Instance.PlayAudio(true);
-                        }
-
-                        yield break;
+                        Singleton<ScannerDevice>.Instance.PlayAudio(true);
                     }
 
+                    yield break;
                 }
+
 
                 if (cartManager.MarketShoppingCart.CartMaxed(willBeAddedMore: true))
                 {
@@ -247,6 +258,8 @@ public class Plugin : BaseUnityPlugin
         internal static void CleanMarketShoppingCart()
         {
             CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
+            Singleton<TabletDevice>.Instance.CreateList();
+            Logger.LogDebug($"AutoStock: CleanMarketShoppingCart");
         }
     }
 
