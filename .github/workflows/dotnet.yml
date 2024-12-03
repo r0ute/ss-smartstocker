@@ -10,7 +10,7 @@ on:
 
 env:
   TARGET_FRAMEWORK: netstandard2.1
-  ASSEMBLY_NAME: com.bepinex.plugin.ss.stockorganizer
+  ASSEMBLY_NAME: com.bepinex.plugin.ss.smartstocker
   PLUGIN_DIR: BepInEx/plugins
 
 jobs:
