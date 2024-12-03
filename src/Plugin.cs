@@ -9,7 +9,7 @@ using HarmonyLib;
 using MyBox;
 using TMPro;
 using UnityEngine;
-
+x
 namespace SS.src;
 
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
@@ -31,7 +31,7 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<float> RackStockMultiplier;
 
-    internal static ConfigEntry<float> MinimumReserve;
+    internal static ConfigEntry<float> ProtectedFunds;
 
     internal static ConfigEntry<Color> RackBoxTotalColor;
 
@@ -59,8 +59,8 @@ public class Plugin : BaseUnityPlugin
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
                 new AcceptableValueRange<float>(0.01f, 5f)));
 
-        MinimumReserve = Config.Bind("*General*", "MinimumReserve", 500f, new ConfigDescription(
-            "Reserved amount that is conditionally accessible based on the balance",
+        ProtectedFunds = Config.Bind("*General*", "ProtectedFunds,$", 500f, new ConfigDescription(
+            "Reserved amount of money set aside and inaccessible for restocking",
                 new AcceptableValueRange<float>(0f, 100_000f)));
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
@@ -116,7 +116,6 @@ public class Plugin : BaseUnityPlugin
         [HarmonyPostfix]
         static void OnDayUpdate(ref DayCycleManager __instance)
         {
-
             if (ForceAutoStockKey.Value.IsDown())
             {
                 Logger.LogDebug($"AutoStock: ForceAutoStockKey IsDown");
@@ -144,7 +143,6 @@ public class Plugin : BaseUnityPlugin
         [HarmonyReversePatch]
         [HarmonyPatch(typeof(MarketShoppingCart), "CleanCart")]
         static void CleanMarketShoppingCart(object instance) => throw new NotImplementedException();
-
 
         internal static IEnumerator AutoStockProducts(bool auto = true)
         {
@@ -274,10 +272,10 @@ public class Plugin : BaseUnityPlugin
 
         private static bool HasEnoughMoney(CartManager cartManager)
         {
-            Logger.LogDebug($"AutoStock: GetTotalPrice={cartManager.MarketShoppingCart.GetTotalPrice()},CurrentShippingCost={cartManager.MarketShoppingCart.CurrentShippingCost},MinimumReserve={(float)Math.Round(MinimumReserve.Value, 2)}");
+            Logger.LogDebug($"AutoStock: GetTotalPrice={cartManager.MarketShoppingCart.GetTotalPrice()},CurrentShippingCost={cartManager.MarketShoppingCart.CurrentShippingCost},MinimumReserve={(float)Math.Round(ProtectedFunds.Value, 2)}");
             return Singleton<MoneyManager>.Instance.HasMoney(cartManager.MarketShoppingCart.GetTotalPrice()
                 + cartManager.MarketShoppingCart.CurrentShippingCost
-                + MinimumReserve.Value);
+                + ProtectedFunds.Value);
 
         }
 
