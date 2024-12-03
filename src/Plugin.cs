@@ -47,6 +47,8 @@ public class Plugin : BaseUnityPlugin
 
     static readonly int TEXT_PARAGRAPH_SPACING = -10;
 
+    static readonly float PURCHASE_DELAY_IN_SEC = 1.5f;
+
     private void Awake()
     {
         // Plugin startup logic
@@ -56,7 +58,7 @@ public class Plugin : BaseUnityPlugin
 
         RackStockMultiplier = Config.Bind("*General*", "RackStockMultiplier", 1f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
-                new AcceptableValueRange<float>(0.01f, 5f)));
+                new AcceptableValueRange<float>(0.01f, 3f)));
 
         ProtectedFunds = Config.Bind("*General*", "ProtectedFunds,$", 500f, new ConfigDescription(
             "Reserved amount of money set aside and inaccessible for restocking",
@@ -165,12 +167,11 @@ public class Plugin : BaseUnityPlugin
             }
 
             CleanMarketShoppingCart();
-
             var productsByInventoryAmount = Singleton<DisplayManager>.Instance.DisplayedProducts.Keys
                 .ToDictionary(key => key, Singleton<InventoryManager>.Instance.GetInventoryAmount);
             var sortedProductsByInventoryAmount = productsByInventoryAmount.OrderBy(item => item.Value);
-            yield return null;
             Logger.LogInfo($"AutoStock: productsByInventoryAmount={productsByInventoryAmount.Count}");
+            yield return null;
 
             foreach (var item in sortedProductsByInventoryAmount)
             {
@@ -205,8 +206,8 @@ public class Plugin : BaseUnityPlugin
                 {
                     FirstItemCount = finalAmount
                 };
-
                 Logger.LogDebug($"AutoStock: product={product},FirstItemID={itemQuantity.FirstItemID},FirstItemCount={itemQuantity.FirstItemCount}");
+                yield return null;
 
                 cartManager.AddCart(itemQuantity, SalesType.PRODUCT);
                 Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
@@ -217,7 +218,7 @@ public class Plugin : BaseUnityPlugin
                 {
                     Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
                     Purchase(cartManager, auto);
-                    yield return null;
+                    yield return new WaitForSeconds(PURCHASE_DELAY_IN_SEC);
 
                     if (!auto)
                     {
@@ -238,22 +239,25 @@ public class Plugin : BaseUnityPlugin
                     Singleton<ScannerDevice>.Instance.OnRemoveItem?.Invoke(itemQuantity);
                     cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
                     Logger.LogDebug($"AutoStock: ReduceCart product={product},FirstItemCount={itemQuantity.FirstItemCount}");
-                    Purchase(cartManager, auto);
                     yield return null;
+
+                    Purchase(cartManager, auto);
+                    yield return new WaitForSeconds(PURCHASE_DELAY_IN_SEC);
+
                     cartManager.AddCart(new ItemQuantity(item.Key, price)
                     {
                         FirstItemCount = finalAmount
                     }, SalesType.PRODUCT);
                     Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
                     Logger.LogDebug($"AutoStock: ReAddCart product={product}, count={itemQuantity.FirstItemCount}");
+                    yield return null;
                 }
-
-                yield return null;
             }
 
             if (cartManager.MarketShoppingCart.ItemCountInCart > 0)
             {
                 Purchase(cartManager, auto);
+                yield return new WaitForSeconds(PURCHASE_DELAY_IN_SEC);
             }
 
             Logger.LogInfo($"Stock update finished: auto={auto}");
