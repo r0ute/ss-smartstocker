@@ -89,7 +89,7 @@ public class Plugin : BaseUnityPlugin
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
 
-    class StockManager
+    internal class StockManager
     {
 
         [HarmonyPatch(typeof(DayCycleManager), nameof(DayCycleManager.StartNextDay))]
@@ -107,7 +107,7 @@ public class Plugin : BaseUnityPlugin
 
         [HarmonyPatch(typeof(DayCycleManager), "Update")]
         [HarmonyPostfix]
-        static void OnDayUpdate(ref DayCycleManager __instance)
+        internal static void OnDayUpdate(ref DayCycleManager __instance)
         {
 
             if (ForceAutoStockKey.Value.IsDown())
