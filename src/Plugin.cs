@@ -9,7 +9,7 @@ using HarmonyLib;
 using MyBox;
 using TMPro;
 using UnityEngine;
-x
+
 namespace SS.src;
 
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
@@ -38,7 +38,6 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<Color> RackFillBoxCountColor;
 
     internal static ConfigEntry<Color> DisplayProductTotalColor;
-
 
     static readonly Color DEFICIT_COLOR = new(0.5f, 0, 0, 0.5f);
 
@@ -170,9 +169,8 @@ public class Plugin : BaseUnityPlugin
             var productsByInventoryAmount = Singleton<DisplayManager>.Instance.DisplayedProducts.Keys
                 .ToDictionary(key => key, Singleton<InventoryManager>.Instance.GetInventoryAmount);
             var sortedProductsByInventoryAmount = productsByInventoryAmount.OrderBy(item => item.Value);
-            Logger.LogDebug($"AutoStock: sortedProductsByInventoryAmount");
-            sortedProductsByInventoryAmount.Select(i => $"{i.Key}: {i.Value}").ToList().ForEach(Logger.LogDebug);
             yield return null;
+            Logger.LogInfo($"AutoStock: productsByInventoryAmount={productsByInventoryAmount.Count}");
 
             foreach (var item in sortedProductsByInventoryAmount)
             {
@@ -212,21 +210,14 @@ public class Plugin : BaseUnityPlugin
 
                 cartManager.AddCart(itemQuantity, SalesType.PRODUCT);
                 Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
-                Logger.LogDebug($"AutoStock: AddCart product={product}");
+                Logger.LogDebug($"AutoStock: AddCart product={product}, count={itemQuantity.FirstItemCount}");
                 yield return null;
 
                 if (!HasEnoughMoney(cartManager))
                 {
                     Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
-
-                    for (int ind = 0; ind < finalAmount; ind++)
-                    {
-                        cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
-                    }
-
-                    Singleton<ScannerDevice>.Instance.OnRemoveItem?.Invoke(itemQuantity);
-                    Logger.LogDebug($"AutoStock: product={product},FirstItemID={itemQuantity.FirstItemID},FirstItemCount={itemQuantity.FirstItemCount}");
                     Purchase(cartManager, auto);
+                    yield return null;
 
                     if (!auto)
                     {
@@ -239,8 +230,22 @@ public class Plugin : BaseUnityPlugin
 
                 if (cartManager.MarketShoppingCart.CartMaxed(willBeAddedMore: true))
                 {
-                    yield return null;
+                    for (int ind = 0; ind < finalAmount; ind++)
+                    {
+                        cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
+                    }
+
+                    Singleton<ScannerDevice>.Instance.OnRemoveItem?.Invoke(itemQuantity);
+                    cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
+                    Logger.LogDebug($"AutoStock: ReduceCart product={product},FirstItemCount={itemQuantity.FirstItemCount}");
                     Purchase(cartManager, auto);
+                    yield return null;
+                    cartManager.AddCart(new ItemQuantity(item.Key, price)
+                    {
+                        FirstItemCount = finalAmount
+                    }, SalesType.PRODUCT);
+                    Singleton<ScannerDevice>.Instance.OnAddedItem?.Invoke(itemQuantity, SalesType.PRODUCT);
+                    Logger.LogDebug($"AutoStock: ReAddCart product={product}, count={itemQuantity.FirstItemCount}");
                 }
 
                 yield return null;
@@ -261,6 +266,7 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
 
+            Logger.LogInfo($"AutoStock: Purchase ProductInCarts={cartManager.MarketShoppingCart.CartData.ProductInCarts.Count}");
             cartManager.MarketShoppingCart.Purchase();
 
             if (!auto)
