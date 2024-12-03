@@ -33,12 +33,16 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<float> MinimumReserve;
 
-    //todo: replace w/ Color; make it ConfigEntry
-    static readonly string PRODUCT_SURPLUS_COLOR = "#00ff0080";
+    internal static ConfigEntry<Color> RackProductTotalColor;
 
-    static readonly string PRODUCT_DEFICIT_COLOR = "#ff000080";
+    internal static ConfigEntry<Color> RackFillProductCountColor;
 
-    static readonly string MAX_PRODUCT_COLOR = "#00000080";
+    internal static ConfigEntry<Color> DisplayProductTotalColor;
+
+
+    static readonly Color DEFICIT_COLOR = new(1, 0, 0, 0.5f);
+
+    static readonly Color TOTAL_COLOR = new(0, 0, 0, 0.5f);
 
     static readonly float FONT_SIZE_MULTIPLIER = 0.5f;
 
@@ -49,7 +53,15 @@ public class Plugin : BaseUnityPlugin
         // Plugin startup logic
         Logger = base.Logger;
 
-        AutoStock = Config.Bind("General", "AutoStock", true, "Enable automated stocking");
+        AutoStock = Config.Bind("*General*", "AutoStock", true, "Enable automated stocking");
+
+        RackStockMultiplier = Config.Bind("*General*", "RackStockMultiplier", 1f, new ConfigDescription(
+            "The multiplier is applied to the display slot product count to calculate the final purchase amount",
+                new AcceptableValueRange<float>(0.01f, 5f)));
+
+        MinimumReserve = Config.Bind("*General*", "MinimumReserve", 500f, new ConfigDescription(
+            "Reserved amount that is conditionally accessible based on the balance",
+                new AcceptableValueRange<float>(0f, 100_000f)));
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
             new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
@@ -60,17 +72,13 @@ public class Plugin : BaseUnityPlugin
         ToggleAllRestockersKey = Config.Bind("Key Bindings", "ToggleAllRestockersKey",
             new KeyboardShortcut(KeyCode.T, KeyCode.LeftControl));
 
-        RackStockMultiplier = Config.Bind("General", "RackStockMultiplier", 1f, new ConfigDescription(
-            "The multiplier is applied to the display slot product count to calculate the final purchase amount",
-                new AcceptableValueRange<float>(0.01f, 5f)));
-
-        MinimumReserve = Config.Bind("General", "MinimumReserve", 500f, new ConfigDescription(
-            "Reserved amount that is conditionally accessible based on the balance",
-                new AcceptableValueRange<float>(0f, 100_000f)));
-
         DisplayLabelInfo = Config.Bind("Label", "DisplayLabelInfo", true, "Show additional information on display label");
+        DisplayProductTotalColor = Config.Bind("Label", "DisplayProductTotalColor", TOTAL_COLOR, "DisplayProductTotalColor");
 
         RackLabelInfo = Config.Bind("Label", "RackLabelInfo", true, "Show additional information on rack label");
+        RackProductTotalColor = Config.Bind("Label", "RackProductTotalColor", TOTAL_COLOR, "RackProductTotalColor");
+        RackFillProductCountColor = Config.Bind("Label", "RackFillProductCountColor", DEFICIT_COLOR, "RackFillProductCountColor");
+
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
 
@@ -213,8 +221,15 @@ public class Plugin : BaseUnityPlugin
                 if (!HasEnoughMoney(cartManager))
                 {
                     Logger.LogInfo($"AutoStock: Not enough money to purchase product={product}");
-                    CleanMarketShoppingCart();
-                    // todo: remove previous product instead of cleaning the cart
+
+                    for (int ind = 0; ind < finalAmount; ind++)
+                    {
+                        cartManager.ReduceCart(itemQuantity, SalesType.PRODUCT);
+                    }
+
+                    Singleton<ScannerDevice>.Instance.OnRemoveItem?.Invoke(itemQuantity);
+                    Logger.LogDebug($"AutoStock: product={product},FirstItemID={itemQuantity.FirstItemID},FirstItemCount={itemQuantity.FirstItemCount}");
+                    Purchase(cartManager, auto);
 
                     if (!auto)
                     {
@@ -355,8 +370,8 @@ public class Plugin : BaseUnityPlugin
 
                 if (boxDeficitCount > 0)
                 {
-                    boxCountText += string.Format("<color={0}>{1}</color>",
-                        PRODUCT_DEFICIT_COLOR,
+                    boxCountText += string.Format("<color=#{0}>{1}</color>",
+                        ColorUtility.ToHtmlStringRGBA(RackFillProductCountColor.Value),
                         boxDeficitCount);
                 }
 
@@ -367,8 +382,8 @@ public class Plugin : BaseUnityPlugin
 
                 if (boxSurplusCount > 0)
                 {
-                    boxCountText += string.Format("<color={0}>{1}</color>",
-                        PRODUCT_SURPLUS_COLOR,
+                    boxCountText += string.Format("<color=#{0}>{1}</color>",
+                        ColorUtility.ToHtmlStringRGBA(RackProductTotalColor.Value),
                         boxSurplusCount);
                 }
 
@@ -447,10 +462,10 @@ public class Plugin : BaseUnityPlugin
                 var productCountText = Traverse.Create(label).Field("m_ProductCount").GetValue() as TMP_Text;
 
                 productCountText.paragraphSpacing = TEXT_PARAGRAPH_SPACING;
-                productCountText.text = string.Format("{0}</size><br><size={1}><color={2}>{3}</color></size>",
+                productCountText.text = string.Format("{0}</size><br><size={1}><color=#{2}>{3}</color></size>",
                     displaySlot.ProductCount,
                     productCountText.fontSizeMax * FONT_SIZE_MULTIPLIER,
-                    MAX_PRODUCT_COLOR,
+                    ColorUtility.ToHtmlStringRGBA(DisplayProductTotalColor.Value),
                     maxProductCount);
             }
         }
