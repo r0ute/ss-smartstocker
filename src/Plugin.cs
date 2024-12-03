@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
@@ -21,6 +22,8 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<KeyboardShortcut> ForceAutoStockKey;
 
     internal static ConfigEntry<KeyboardShortcut> CleanShoppingCartKey;
+
+    internal static ConfigEntry<KeyboardShortcut> ToggleAllRestockersKey;
 
     internal static ConfigEntry<bool> DisplayLabelInfo;
 
@@ -49,10 +52,13 @@ public class Plugin : BaseUnityPlugin
         AutoStock = Config.Bind("General", "AutoStock", true, "Enable automated stocking");
 
         ForceAutoStockKey = Config.Bind("Key Bindings", "ForceAutoStockKey",
-                new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
+            new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl));
 
         CleanShoppingCartKey = Config.Bind("Key Bindings", "CleanShoppingCartKey",
-                new KeyboardShortcut(KeyCode.C, KeyCode.LeftControl));
+            new KeyboardShortcut(KeyCode.C, KeyCode.LeftControl));
+
+        ToggleAllRestockersKey = Config.Bind("Key Bindings", "ToggleAllRestockersKey",
+            new KeyboardShortcut(KeyCode.T, KeyCode.LeftControl));
 
         RackStockMultiplier = Config.Bind("General", "RackStockMultiplier", 1f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
@@ -114,6 +120,12 @@ public class Plugin : BaseUnityPlugin
             {
                 Logger.LogDebug($"AutoStock: CleanShoppingCartKey IsDown");
                 CleanMarketShoppingCart();
+            }
+
+            if (ToggleAllRestockersKey.Value.IsDown())
+            {
+                Logger.LogDebug($"AutoStock: ToggleAllRestockersKey IsDown");
+                ToggleAllRestockers();
             }
 
             if (__instance.CurrentMinute >= 60)
@@ -255,11 +267,31 @@ public class Plugin : BaseUnityPlugin
 
         }
 
-        internal static void CleanMarketShoppingCart()
+        private static void CleanMarketShoppingCart()
         {
             CleanMarketShoppingCart(Singleton<CartManager>.Instance.MarketShoppingCart);
             Singleton<TabletDevice>.Instance.CreateList();
             Logger.LogDebug($"AutoStock: CleanMarketShoppingCart");
+        }
+
+        private static void ToggleAllRestockers()
+        {
+            var restockersData = Traverse.Create(Singleton<EmployeeManager>.Instance).Field("m_RestockersData").GetValue() as List<int>;
+            restockersData.ForEach(restockerId =>
+            {
+                var restocker = Singleton<EmployeeManager>.Instance.GetRestockerByID(restockerId);
+                RestockerManagementData managementData = new()
+                {
+                    RestockerID = restocker.ManagementData.RestockerID,
+                    IsActive = !restocker.ManagementData.IsActive,
+                    UseUnlabeledRacks = restocker.ManagementData.UseUnlabeledRacks
+                };
+
+                Singleton<RestockerManager>.Instance.SetRestockerManagementData(managementData);
+            });
+
+            Singleton<SFXManager>.Instance.PlayMouseClickSFX();
+
         }
     }
 
