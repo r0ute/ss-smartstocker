@@ -33,14 +33,14 @@ public class Plugin : BaseUnityPlugin
 
     internal static ConfigEntry<float> MinimumReserve;
 
-    internal static ConfigEntry<Color> RackProductTotalColor;
+    internal static ConfigEntry<Color> RackBoxTotalColor;
 
-    internal static ConfigEntry<Color> RackFillProductCountColor;
+    internal static ConfigEntry<Color> RackFillBoxCountColor;
 
     internal static ConfigEntry<Color> DisplayProductTotalColor;
 
 
-    static readonly Color DEFICIT_COLOR = new(1, 0, 0, 0.5f);
+    static readonly Color DEFICIT_COLOR = new(0.5f, 0, 0, 0.5f);
 
     static readonly Color TOTAL_COLOR = new(0, 0, 0, 0.5f);
 
@@ -76,9 +76,8 @@ public class Plugin : BaseUnityPlugin
         DisplayProductTotalColor = Config.Bind("Label", "DisplayProductTotalColor", TOTAL_COLOR, "DisplayProductTotalColor");
 
         RackLabelInfo = Config.Bind("Label", "RackLabelInfo", true, "Show additional information on rack label");
-        RackProductTotalColor = Config.Bind("Label", "RackProductTotalColor", TOTAL_COLOR, "RackProductTotalColor");
-        RackFillProductCountColor = Config.Bind("Label", "RackFillProductCountColor", DEFICIT_COLOR, "RackFillProductCountColor");
-
+        RackBoxTotalColor = Config.Bind("Label", "RackBoxTotalColor", TOTAL_COLOR, "RackBoxTotalColor");
+        RackFillBoxCountColor = Config.Bind("Label", "RackFillBoxCountColor", DEFICIT_COLOR, "RackFillBoxCountColor");
 
         Harmony harmony = new(MyPluginInfo.PLUGIN_GUID);
 
@@ -313,38 +312,6 @@ public class Plugin : BaseUnityPlugin
     class RackSlotInfo
     {
 
-        [HarmonyPatch(typeof(MarketShoppingCart), "AddProduct")]
-        [HarmonyPostfix]
-        static void OnMarketShoppingCartAddProduct(ItemQuantity salesItem, SalesType salesType)
-        {
-            if (salesType != SalesType.PRODUCT)
-            {
-                return;
-            }
-
-            Singleton<RackManager>.Instance.RackSlots[salesItem.FirstItemID].ForEach(UpdateLabel);
-        }
-
-        [HarmonyPatch(typeof(MarketShoppingCart), nameof(MarketShoppingCart.RemoveProduct))]
-        [HarmonyPostfix]
-        static void OnMarketShoppingCartRemoveProduct(ItemQuantity productData, SalesType salesType)
-        {
-
-            if (salesType != SalesType.PRODUCT)
-            {
-                return;
-            }
-
-            Singleton<RackManager>.Instance.RackSlots[productData.FirstItemID].ForEach(UpdateLabel);
-        }
-
-        [HarmonyPatch(typeof(InventoryManager), nameof(InventoryManager.RemoveBox), [typeof(BoxData)])]
-        [HarmonyPostfix]
-        static void OnInventoryManagerRemoveBox(BoxData boxData)
-        {
-
-            Singleton<RackManager>.Instance.RackSlots[boxData.ProductID].ForEach(UpdateLabel);
-        }
 
         [HarmonyPatch(typeof(RackSlot), "Initialize")]
         [HarmonyPatch(typeof(RackSlot), "SetLabel")]
@@ -358,38 +325,21 @@ public class Plugin : BaseUnityPlugin
 
         private static void UpdateLabel(RackSlot rackSlot)
         {
-            if (rackSlot.HasLabel && !rackSlot.Full)
+            if (rackSlot.HasLabel)
             {
 
-                var boxSurplusCount = CountCartBoxes(rackSlot) + CountStreetBoxes(rackSlot);
-                var boxDeficitCount = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot)).GridLayout.boxCount
-                 - rackSlot.Data.BoxCount
-                 - boxSurplusCount;
+                var boxCountText = string.Format("<color=#{0}>{1}</color>",
+                    ColorUtility.ToHtmlStringRGBA(RackBoxTotalColor.Value),
+                    Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot)).GridLayout.boxCount);
 
-                string boxCountText = "";
+                var fillBoxCount = Singleton<IDManager>.Instance.BoxSO(GetBoxId(rackSlot)).GridLayout.boxCount
+                - rackSlot.Data.BoxCount;
 
-                if (boxDeficitCount > 0)
+                if (fillBoxCount > 0)
                 {
-                    boxCountText += string.Format("<color=#{0}>{1}</color>",
-                        ColorUtility.ToHtmlStringRGBA(RackFillProductCountColor.Value),
-                        boxDeficitCount);
-                }
-
-                if (boxDeficitCount > 0 && boxSurplusCount > 0)
-                {
-                    boxCountText += " ";
-                }
-
-                if (boxSurplusCount > 0)
-                {
-                    boxCountText += string.Format("<color=#{0}>{1}</color>",
-                        ColorUtility.ToHtmlStringRGBA(RackProductTotalColor.Value),
-                        boxSurplusCount);
-                }
-
-                if (boxCountText.IsNullOrEmpty())
-                {
-                    return;
+                    boxCountText += string.Format(" <color=#{0}>-{1}</color>",
+                        ColorUtility.ToHtmlStringRGBA(RackFillBoxCountColor.Value),
+                        fillBoxCount);
                 }
 
                 var label = Traverse.Create(rackSlot).Field("m_Label").GetValue() as Label;
@@ -402,22 +352,6 @@ public class Plugin : BaseUnityPlugin
                     boxCountText);
             }
 
-        }
-
-        private static int CountStreetBoxes(RackSlot rackSlot)
-        {
-            return Singleton<StorageStreet>.Instance.GetAllBoxesFromStreet()
-                .Count((box) => !box.IsBoxOccupied && box.Product.ID == rackSlot.Data.ProductID);
-        }
-
-        private static int CountCartBoxes(RackSlot rackSlot)
-        {
-            var itemQuantity = Singleton<CartManager>.Instance.CartData.ProductInCarts
-                    .FirstOrDefault((itemQuantity) => itemQuantity.FirstItemID == rackSlot.Data.ProductID);
-
-            return (itemQuantity != null)
-                ? itemQuantity.FirstItemCount
-                : 0;
         }
 
         private static int GetBoxId(RackSlot rackSlot)
