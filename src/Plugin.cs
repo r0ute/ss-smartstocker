@@ -303,8 +303,13 @@ public class Plugin : BaseUnityPlugin
         {
             var restocker = Singleton<EmployeeManager>.Instance.GetRestockerByID(restockerId);
             RestockerManagementData managementData = new(
-                restocker.ManagementData.RestockerID,
-                !restocker.ManagementData.IsActive
+                restockerID: restocker.ManagementData.RestockerID,
+                isActive: !restocker.ManagementData.IsActive,
+                useUnlabeledRacks: restocker.ManagementData.UseUnlabeledRacks,
+                pickUpBoxGround: restocker.ManagementData.PickUpBoxGround,
+                dropEmptyBox: restocker.ManagementData.DropEmptyBox,
+                removeLabelRack: restocker.ManagementData.RemoveLabelRack,
+                restockShelf: restocker.ManagementData.RestockShelf
             );
 
             Singleton<RestockerManager>.Instance.SetRestockerManagementData(managementData);
