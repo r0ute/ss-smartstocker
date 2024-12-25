@@ -56,7 +56,7 @@ public class Plugin : BaseUnityPlugin
 
         AutoStock = Config.Bind("*General*", "AutoStock", true, "Enable automated stocking");
 
-        RackStockMultiplier = Config.Bind("*General*", "RackStockMultiplier", 1f, new ConfigDescription(
+        RackStockMultiplier = Config.Bind("*General*", "RackStockMultiplier", 1.5f, new ConfigDescription(
             "The multiplier is applied to the display slot product count to calculate the final purchase amount",
                 new AcceptableValueRange<float>(0.01f, 3f)));
 
