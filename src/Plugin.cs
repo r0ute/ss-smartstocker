@@ -271,7 +271,7 @@ public class Plugin : BaseUnityPlugin
             }
 
             Logger.LogInfo($"AutoStock: Purchase ProductInCarts={cartManager.MarketShoppingCart.CartData.ProductInCarts.Count}");
-            cartManager.MarketShoppingCart.Purchase();
+            cartManager.MarketShoppingCart.Purchase(fromTablet: true);
 
             if (!auto)
             {
@@ -300,17 +300,15 @@ public class Plugin : BaseUnityPlugin
         {
             var restockersData = Traverse.Create(Singleton<EmployeeManager>.Instance).Field("m_RestockersData").GetValue() as List<int>;
             restockersData.ForEach(restockerId =>
-            {
-                var restocker = Singleton<EmployeeManager>.Instance.GetRestockerByID(restockerId);
-                RestockerManagementData managementData = new()
-                {
-                    RestockerID = restocker.ManagementData.RestockerID,
-                    IsActive = !restocker.ManagementData.IsActive,
-                    UseUnlabeledRacks = restocker.ManagementData.UseUnlabeledRacks
-                };
+        {
+            var restocker = Singleton<EmployeeManager>.Instance.GetRestockerByID(restockerId);
+            RestockerManagementData managementData = new(
+                restocker.ManagementData.RestockerID,
+                !restocker.ManagementData.IsActive
+            );
 
-                Singleton<RestockerManager>.Instance.SetRestockerManagementData(managementData);
-            });
+            Singleton<RestockerManager>.Instance.SetRestockerManagementData(managementData);
+        });
 
             Singleton<SFXManager>.Instance.PlayMouseClickSFX();
 
